@@ -85,10 +85,15 @@ ESP-IDF core build. No free clock win exists.
 
 ## Sequence budget
 
-seq 512 at 27M, KV cache in 8MB PSRAM (PSRAM-aware allocators:
-KV/logits -> SPIRAM, hot buffers -> internal SRAM). The binding
-deployment constraint was never the KV cache; it is the 14MB flash
-partition per board.
+Training seq 512; **device seq 256**. KV cache is fp32:
+    KV = 2 x seq x dim x 4B x layers_per_board
+       = 2 x 256 x 512 x 4 x 4 = 4.2MB   fits 8MB PSRAM
+       = 2 x 512 x 512 x 4 x 4 = 8.4MB   does not
+Fine-tune p99 prompt length was 218 tokens, so 256 is comfortable.
+PSRAM-aware allocators: KV/logits -> SPIRAM, hot buffers -> internal
+SRAM. fp16 KV (queued, DISTANT_ROADMAP B4) would make device seq 512
+fit in the same 4.2MB. The binding deployment constraint has been the
+14MB flash partition per board, not the KV cache.
 
 ## Where the next speed comes from
 

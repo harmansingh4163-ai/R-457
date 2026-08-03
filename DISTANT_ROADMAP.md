@@ -105,6 +105,34 @@ not empty retrieval.
 
 ---
 
+
+### B4. fp16 KV cache
+**Cost:** firmware-only, small. **Odds:** high.
+Halves KV RAM; device seq 512 fits in the same 4.2MB. Also a
+prerequisite for anything deeper. From MAX_MODEL.md.
+
+### B5. gs=64 export experiment
+**Cost:** one export + offline eval. **Odds:** moderate.
+~1.5MB flash back (0.5625 B/param). Risk: coarser groups erode exact
+decimal copying — the product. Eval before any hardware flash.
+
+### B6. PSRAM weight-cache experiment
+**Cost:** one evening of firmware. **Odds:** genuinely unknown — that
+is the point.
+At llm_init, memcpy ~3MB of tensors from mmapped flash into PSRAM and
+swap the pointers; llm_matmul_rows does not care where a pointer
+points. Physics: flash QIO 4-bit @ 80MHz vs PSRAM OPI 8-bit @ 80MHz —
+2x bus width for whatever moves. Amdahl on ~6.75MB/board/token:
+~1.28x best case at 3MB, ~1.7x at 5.5MB after B4 frees KV RAM.
+DOUBLES AS THE BOTTLENECK PROBE: speedup tracking bytes-moved = the
+matmul is bandwidth-bound (proceed to B4 + full cache); no speedup =
+latency/pattern-bound (the access audit knows where to dig). Either
+outcome closes a question. Sequencing: run BEFORE the audit — it is
+the audit's measurement instrument.
+Rejected twin: spending the same PSRAM on extra weights (~33M dense
+via SD boot-load). Mechanically fine, dies on wall 3 (MAX_MODEL.md):
+more bytes per token on a 0.25-0.5 tok/s device.
+
 ## Tier C — invented, uncommitted
 
 ### C1. Idle-worker retrieval
