@@ -1,0 +1,17 @@
+# model images and checkpoints live in Releases, not git
+*.bin
+*.pt
+*.model
+*.vocab
+
+# data
+data/
+*.jsonl
+!examples/*.jsonl
+
+# logs and scratch
+*.log
+__pycache__/
+.DS_Store
+*.pre_ple
+*.pre_ft7
