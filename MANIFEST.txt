@@ -1,6 +1,8 @@
 R-457 repository assembly
 2026-08-02 23:06
 
+Covers the Aug 2 initial assembly only. Files added after
+Aug 2 are tracked by git history, not this list.
 Each file below was copied from exactly one authoritative
 source. Short sha256 in brackets.
 
