@@ -74,7 +74,15 @@ arithmetic floor AND ~170 ms QIO-flash streaming floor — a 20× gap
 over both. The workload is latency-bound on flash/PSRAM, so faster
 arithmetic cannot help.
 
-Status: CLOSED on host measurements + bottleneck analysis. Scope
+Status: REOPENED (Aug 4) after external correction. (1) Host results
+do not transfer: Xtensa GCC cannot auto-vectorize to PIE, so the
+on-chip scalar baseline is unvectorized and manual PIE headroom is
+real (EE.VMULAS.S8: 16 int8 MACs/cycle; ~7 cycles per 32 int4 MACs
+incl. nibble unpack). (2) On the in-order LX7, cache stalls and
+compute SERIALIZE, so compute savings pay off proportional to compute
+share of token time (unmeasured; ~10-min cache-resident matmul
+benchmark decides). Endgame: GDMA double-buffered tiling + PIE kernel
+restores overlap and approaches the streaming floor. Scope
 note: true PIE assembly was never benchmarked on-silicon; reopen only
 with an on-chip PIE benchmark, and only after the memory work lands.
 Clock ceilings (measured from the shipped core, qio_opi variant):
