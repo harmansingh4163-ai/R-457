@@ -16,7 +16,10 @@ Usage (inside llama2.c, after training):
       --n 200 --show 4 --no-tools     # compare against the floor
 """
 
-import argparse, glob, json, os, re
+import argparse, glob, json, os, re, sys
+# pc_tools/ sits beside train/, where model.py & tokenizer.py live (A-3).
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                os.pardir, "train"))
 
 # ---------------------------------------------------------------------------
 # tool logic — mirrors pending_tool() in esp32_r457.ino

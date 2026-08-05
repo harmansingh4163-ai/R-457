@@ -3,9 +3,11 @@
  * CRC16-CCITT over cmd..payload. Byte I/O is abstracted through function
  * pointers so the framing logic is host-testable with a loopback.
  *
- * Wiring: head TX17 -> worker RX18, head RX18 <- worker TX17, GND <-> GND.
- * 2,000,000 baud: a 288-dim fp32 activation (1152 B) crosses in ~6 ms,
- * negligible against ~1 s/token inference time.
+ * Wiring: head TX8 -> worker RX18, head RX9 <- worker TX17, GND <-> GND.
+ * (Head = Waveshare, pins 8/9 on the I2C terminal block; worker = Guition,
+ * pins 17/18. Per-board pins are the LINK_*_PIN defines below.)
+ * 460800 baud: a 512-dim fp32 activation (2048 B) crosses in ~45 ms,
+ * small against multi-second/token inference time.
  */
 #ifndef PIPELINE_LINK_H
 #define PIPELINE_LINK_H

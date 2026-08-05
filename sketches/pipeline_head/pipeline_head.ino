@@ -22,11 +22,9 @@
 #include <SPI.h>
 #include <SD.h>
 
-// !!! VERIFY THESE FOR YOUR BOARD — no standard SD pinout exists on ESP32-S3.
-#define SD_SCK   39
-#define SD_MISO  40
-#define SD_MOSI  41
-#define SD_CS    38
+/* SD pins are hardcoded in kb_init(): SPI.begin(12, 13, 11, -1) with CS via
+   the CH422G expander (EXIO4). Former placeholder #defines deleted — they
+   were dead code and the exact trap R-457_HARDWARE.md warns about. */
 #define KB_PATH  "/kb.bin"
 static int g_kb_ready  = 0;
 static int g_kb_nfacts = 2;

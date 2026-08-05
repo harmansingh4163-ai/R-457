@@ -61,6 +61,28 @@ static int inside_tool(const char* text, const char* p) {
 
 /* ---------- check 2: tool recheck ---------- */
 
+/* An open tag with no matching close blinds inside_tool() for the rest of
+   the text: every later number would count as "grounded via tools", and the
+   malformed call itself escapes recheck (sscanf needs the full shape).
+   Fail closed instead. */
+static int unterminated_tool(const char* gen, char* report, int repsz) {
+  static const char* pair[][2] = {
+    { "<calc>", "</calc>" }, { "<count>", "</count>" },
+    { "<quote>", "</quote>" } };
+  for (unsigned t = 0; t < sizeof(pair) / sizeof(pair[0]); t++) {
+    const char* p = gen;
+    while ((p = strstr(p, pair[t][0])) != NULL) {
+      const char* c = strstr(p, pair[t][1]);
+      if (c == NULL) {
+        snprintf(report, repsz, "TOOL FAIL: unterminated %s", pair[t][0]);
+        return 1;
+      }
+      p = c + strlen(pair[t][1]);
+    }
+  }
+  return 0;
+}
+
 static int recheck_calc(const char* gen, char* report, int repsz) {
   const char* p = gen;
   while ((p = strstr(p, "<calc>")) != NULL) {
@@ -130,6 +152,7 @@ verify_rc verify_answer(const char* prompt, const char* gen,
   report[0] = '\0';
   if (!gen || !gen[0]) { snprintf(report, repsz, "empty"); return VERIFY_EMPTY; }
 
+  if (unterminated_tool(gen, report, repsz)) return VERIFY_TOOL_FAIL;
   if (!recheck_calc(gen, report, repsz))  return VERIFY_TOOL_FAIL;
   if (!recheck_count(gen, report, repsz)) return VERIFY_TOOL_FAIL;
 
@@ -231,6 +254,14 @@ int verify_selftest(void) {
       "Facts: The density of copper is 8960.",
       "Cannot be determined, but it is probably 1234.",
       VERIFY_UNGROUNDED },
+    { "PLANTED unterminated calc blinds verifier",
+      "Facts: The density of copper is 8960.",
+      "The mass is <calc>12*9 and therefore 999 kg.",
+      VERIFY_TOOL_FAIL },           /* 999 must not pass as tool-grounded */
+    { "PLANTED unterminated quote",
+      "Facts: The melting point of silicon is 1414.",
+      "<quote>silicon,melting so the answer is 1414.",
+      VERIFY_TOOL_FAIL },
   };
   int fails = 0; char rep[192];
   for (unsigned i = 0; i < sizeof(T)/sizeof(T[0]); i++) {

@@ -1,0 +1,7 @@
+# R-457 Python toolchain dependencies (train/ + pc_tools/)
+# Reviewed working versions: torch 2.13, sentencepiece 0.2.2, Python 3.12
+torch>=2.1
+numpy>=1.24
+sentencepiece>=0.1.99
+requests
+tqdm

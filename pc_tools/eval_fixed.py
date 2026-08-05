@@ -11,6 +11,9 @@
 # swapped folders for a training run, the script finds them either way.
 
 import sys, os
+# pc_tools/ sits beside train/, where model.py & tokenizer.py live (A-3).
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                os.pardir, "train"))
 import torch, numpy as np
 from model import ModelArgs, Transformer
 

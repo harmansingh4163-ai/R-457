@@ -258,7 +258,14 @@ class Task:
         dl = torch.utils.data.DataLoader(
             ds, batch_size=batch_size, pin_memory=True, num_workers=num_workers
         )
+        # FAILURES.md #1 tripwires — run on CPU tensors, before .to(device),
+        # so a recurrence of the loader bug is caught loudly, not trained on.
+        vs = dataset_kwargs.get("vocab_size", 0) or 32000  # 0 = Llama-2 tok
         for x, y in dl:
+            assert x.max().item() < vs, (
+                f"loader: token id {x.max().item()} >= vocab_size {vs}")
+            assert torch.equal(x[:, 1:], y[:, :-1]), (
+                "loader: Y is not X shifted by one (X[:,1:] != Y[:,:-1])")
             x = x.to(device, non_blocking=False)
             y = y.to(device, non_blocking=False)
             yield x, y

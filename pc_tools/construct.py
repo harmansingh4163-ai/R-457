@@ -908,8 +908,14 @@ def main():
     if a.sort_curriculum:
         rank = {"negation": 0, "counting": 1, "syllogism": 2,
                 "arithmetic": 3, "forth": 4, "lisp": 5,
-                "physics": 6, "transitive": 7, "undetermined": 8}
-        out.sort(key=lambda o: (rank[o["type"]], len(o["facts"])))
+                "physics": 6, "transitive": 7, "undetermined": 8,
+                "lookup": 9}  # added in v2.1; missing entry caused KeyError
+        try:
+            out.sort(key=lambda o: (rank[o["type"]], len(o["facts"])))
+        except KeyError as e:
+            raise SystemExit(
+                f"--sort-curriculum: type {e.args[0]!r} missing from rank "
+                f"table above — add it (new example types must be ranked)")
 
     with open(a.out, "w", encoding="utf-8") as f:
         for o in out:
