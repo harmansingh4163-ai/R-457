@@ -182,7 +182,8 @@ def pretokenize(vocab_size):
     # process all the shards in a process pool
     fun = partial(process_shard, vocab_size=vocab_size)
     with ProcessPoolExecutor() as executor:
-        executor.map(fun, enumerate(shard_filenames))
+        # D-2: consume the iterator so worker exceptions surface
+        list(executor.map(fun, enumerate(shard_filenames)))
     print("Done.")
 
 

@@ -423,6 +423,8 @@ int llm_encode(LLM* m, const char* text, int bos, int eos, int* tokens, int max)
 
 const char* llm_decode(LLM* m, int prev_token, int token) {
   (void)m;
+  /* D-1: a corrupt token id must not read arbitrary memory */
+  if (!g_pieces || token < 0 || token >= g_vocab) return "";
   const char* piece = g_pieces[token];
   if (prev_token == 1 && piece[0] == ' ') piece++; /* strip space after BOS */
   unsigned char byte;

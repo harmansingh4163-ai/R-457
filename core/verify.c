@@ -140,9 +140,11 @@ static int looks_like_refusal(const char* gen) {
   for (; gen[i] && i < (int)sizeof(low) - 1; i++)
     low[i] = (char)tolower((unsigned char)gen[i]);
   low[i] = '\0';
-  return strstr(low, "cannot be determined") != NULL ||
-         strstr(low, "but not the") != NULL ||
-         strstr(low, "do not mention") != NULL;
+  /* B-2: only the canonical marker counts. Every refusal template in
+     construct.py ends with "Cannot be determined"; the old extra phrases
+     ("but not the", "do not mention") appear inside CORRECT answers too
+     and caused false-positive refusals. */
+  return strstr(low, "cannot be determined") != NULL;
 }
 
 /* ---------- main entry ---------- */
@@ -204,8 +206,16 @@ verify_rc verify_answer(const char* prompt, const char* gen,
     } else p++;
   }
 
-  if (refusal) { snprintf(report, repsz, "refusal, no asserted numbers");
-                 return VERIFY_REFUSAL; }
+  if (refusal) {
+    /* B-2: report truthfully — grounded numbers may have been asserted
+       alongside the refusal ("melting is 660; boiling cannot be
+       determined"). The old report claimed "no asserted numbers". */
+    if (cites[0])
+      snprintf(report, repsz, "refusal; asserts grounded: %s", cites);
+    else
+      snprintf(report, repsz, "refusal, no asserted numbers");
+    return VERIFY_REFUSAL;
+  }
   if (nnum == 0) { snprintf(report, repsz, "no numbers to check");
                    return VERIFY_PASS; }
   snprintf(report, repsz, "%s", cites[0] ? cites : "grounded via tools");
@@ -262,6 +272,16 @@ int verify_selftest(void) {
       "Facts: The melting point of silicon is 1414.",
       "<quote>silicon,melting so the answer is 1414.",
       VERIFY_TOOL_FAIL },
+    { "correct answer containing 'but not the' (B-2 probe)",
+      "Facts: The melting point of tin is 232 degrees Celsius.",
+      "The facts give the melting point but not the boiling point. "
+      "The melting point is 232 degrees Celsius.",
+      VERIFY_PASS },                /* was a false-positive REFUSAL */
+    { "refusal that also asserts a grounded number",
+      "Facts: The melting point of tin is 232 degrees Celsius.",
+      "The melting point is 232 degrees Celsius, but the boiling "
+      "point cannot be determined.",
+      VERIFY_REFUSAL },             /* report must not say 'no numbers' */
   };
   int fails = 0; char rep[192];
   for (unsigned i = 0; i < sizeof(T)/sizeof(T[0]); i++) {

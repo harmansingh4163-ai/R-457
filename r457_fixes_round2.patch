@@ -1,0 +1,232 @@
+From 36b423560e2e68a45879abcc3707a5eb6fcf3f36 Mon Sep 17 00:00:00 2001
+From: r <r@r>
+Date: Wed, 5 Aug 2026 03:52:40 +0000
+Subject: [PATCH] Second pass: D-1..D-5, B-2, B-3 (verifier honesty + safety
+ fixes)
+
+---
+ core/llm_core.c                          |  2 ++
+ core/verify.c                            | 30 ++++++++++++++++++++----
+ core/verify.h                            | 21 +++++++++++++----
+ pc_tools/eval_fixed.py                   |  4 +++-
+ sketches/pipeline_head/llm_core.c        |  2 ++
+ sketches/pipeline_head/pipeline_head.ino | 16 +++++++++++++
+ sketches/pipeline_worker/llm_core.c      |  2 ++
+ train/model.py                           | 11 ++++++---
+ train/tinystories.py                     |  3 ++-
+ 9 files changed, 77 insertions(+), 14 deletions(-)
+
+diff --git a/core/llm_core.c b/core/llm_core.c
+index 24c9136..0c3960b 100644
+--- a/core/llm_core.c
++++ b/core/llm_core.c
+@@ -423,6 +423,8 @@ int llm_encode(LLM* m, const char* text, int bos, int eos, int* tokens, int max)
+ 
+ const char* llm_decode(LLM* m, int prev_token, int token) {
+   (void)m;
++  /* D-1: a corrupt token id must not read arbitrary memory */
++  if (!g_pieces || token < 0 || token >= g_vocab) return "";
+   const char* piece = g_pieces[token];
+   if (prev_token == 1 && piece[0] == ' ') piece++; /* strip space after BOS */
+   unsigned char byte;
+diff --git a/core/verify.c b/core/verify.c
+index 17a114f..e4124d9 100644
+--- a/core/verify.c
++++ b/core/verify.c
+@@ -140,9 +140,11 @@ static int looks_like_refusal(const char* gen) {
+   for (; gen[i] && i < (int)sizeof(low) - 1; i++)
+     low[i] = (char)tolower((unsigned char)gen[i]);
+   low[i] = '\0';
+-  return strstr(low, "cannot be determined") != NULL ||
+-         strstr(low, "but not the") != NULL ||
+-         strstr(low, "do not mention") != NULL;
++  /* B-2: only the canonical marker counts. Every refusal template in
++     construct.py ends with "Cannot be determined"; the old extra phrases
++     ("but not the", "do not mention") appear inside CORRECT answers too
++     and caused false-positive refusals. */
++  return strstr(low, "cannot be determined") != NULL;
+ }
+ 
+ /* ---------- main entry ---------- */
+@@ -204,8 +206,16 @@ verify_rc verify_answer(const char* prompt, const char* gen,
+     } else p++;
+   }
+ 
+-  if (refusal) { snprintf(report, repsz, "refusal, no asserted numbers");
+-                 return VERIFY_REFUSAL; }
++  if (refusal) {
++    /* B-2: report truthfully — grounded numbers may have been asserted
++       alongside the refusal ("melting is 660; boiling cannot be
++       determined"). The old report claimed "no asserted numbers". */
++    if (cites[0])
++      snprintf(report, repsz, "refusal; asserts grounded: %s", cites);
++    else
++      snprintf(report, repsz, "refusal, no asserted numbers");
++    return VERIFY_REFUSAL;
++  }
+   if (nnum == 0) { snprintf(report, repsz, "no numbers to check");
+                    return VERIFY_PASS; }
+   snprintf(report, repsz, "%s", cites[0] ? cites : "grounded via tools");
+@@ -262,6 +272,16 @@ int verify_selftest(void) {
+       "Facts: The melting point of silicon is 1414.",
+       "<quote>silicon,melting so the answer is 1414.",
+       VERIFY_TOOL_FAIL },
++    { "correct answer containing 'but not the' (B-2 probe)",
++      "Facts: The melting point of tin is 232 degrees Celsius.",
++      "The facts give the melting point but not the boiling point. "
++      "The melting point is 232 degrees Celsius.",
++      VERIFY_PASS },                /* was a false-positive REFUSAL */
++    { "refusal that also asserts a grounded number",
++      "Facts: The melting point of tin is 232 degrees Celsius.",
++      "The melting point is 232 degrees Celsius, but the boiling "
++      "point cannot be determined.",
++      VERIFY_REFUSAL },             /* report must not say 'no numbers' */
+   };
+   int fails = 0; char rep[192];
+   for (unsigned i = 0; i < sizeof(T)/sizeof(T[0]); i++) {
+diff --git a/core/verify.h b/core/verify.h
+index cf5cc79..5955c80 100644
+--- a/core/verify.h
++++ b/core/verify.h
+@@ -27,10 +27,23 @@
+  *
+  * KNOWN LIMITS (honest):
+  *   - Number match is exact-string after trimming a trailing '.', so
+- *     "660" does not match "660.0". The bank stores one canonical form,
+- *     so this is fine for /ask; it is NOT a general-text checker.
+- *   - Refusal detection is phrase-based ("cannot be determined",
+- *     "but not the"). New refusal templates must be added here.
++ *     "660" does not match "660.0", and formatting variants ("2,700",
++ *     ".5" vs "0.5") fail closed as UNGROUNDED. The bank stores one
++ *     canonical form, so this is fine for /ask; it is NOT a
++ *     general-text checker.
++ *   - Refusal detection is phrase-based on the single canonical marker
++ *     "cannot be determined" (B-2: broader phrases like "but not the"
++ *     false-positived on correct answers). New refusal templates must
++ *     end with the marker or be added here.
++ *   - A refusal may legitimately assert grounded numbers ("melting is
++ *     660; boiling cannot be determined"); the report says so, but the
++ *     return code is still VERIFY_REFUSAL.
++ *   - Grounding scans the WHOLE prompt, question text included: a
++ *     number that appears only in the question ("Is the answer 42?")
++ *     counts as grounded and is cited with a fact index (B-3).
++ *   - A number appearing twice cites twice ("660 <- fact 1, 660 <- ...").
++ *   - Unterminated <calc>/<count>/<quote> tags fail closed as
++ *     VERIFY_TOOL_FAIL (B-1); they used to ground everything after them.
+  *   - It verifies GROUNDING, not truth. A grounded wrong pick (right
+  *     number attached to wrong property) still passes. That is what
+  *     the model is for.
+diff --git a/pc_tools/eval_fixed.py b/pc_tools/eval_fixed.py
+index 3e361ba..51e4703 100644
+--- a/pc_tools/eval_fixed.py
++++ b/pc_tools/eval_fixed.py
+@@ -29,7 +29,9 @@ FILES = [find(f) for f in
+          ("data00.bin", "data01.bin", "wiki00.bin", "shard00.bin")]
+ FILES = [f for f in FILES if f]
+ 
+-DEVICE = "mps"
++# D-4: auto-detect; was hardcoded "mps" (crashed on non-Mac hosts)
++DEVICE = ("mps" if torch.backends.mps.is_available()
++          else ("cuda" if torch.cuda.is_available() else "cpu"))
+ WINDOWS = 20          # fixed windows per file
+ SEQ = 512             # window length
+ 
+diff --git a/sketches/pipeline_head/llm_core.c b/sketches/pipeline_head/llm_core.c
+index 24c9136..0c3960b 100644
+--- a/sketches/pipeline_head/llm_core.c
++++ b/sketches/pipeline_head/llm_core.c
+@@ -423,6 +423,8 @@ int llm_encode(LLM* m, const char* text, int bos, int eos, int* tokens, int max)
+ 
+ const char* llm_decode(LLM* m, int prev_token, int token) {
+   (void)m;
++  /* D-1: a corrupt token id must not read arbitrary memory */
++  if (!g_pieces || token < 0 || token >= g_vocab) return "";
+   const char* piece = g_pieces[token];
+   if (prev_token == 1 && piece[0] == ' ') piece++; /* strip space after BOS */
+   unsigned char byte;
+diff --git a/sketches/pipeline_head/pipeline_head.ino b/sketches/pipeline_head/pipeline_head.ino
+index 1c94907..ebe9343 100644
+--- a/sketches/pipeline_head/pipeline_head.ino
++++ b/sketches/pipeline_head/pipeline_head.ino
+@@ -310,6 +310,22 @@ static void run_selftest() {
+ }
+ 
+ static void learn_fact(const char* fact) {
++  /* D-5: dedup — a doubled /learn command must not store the fact twice */
++  File r = SD.open("/learned.txt");
++  if (r) {
++    static char line[160];
++    int n;
++    while ((n = r.readBytesUntil('\n', line, sizeof line - 1)) > 0) {
++      line[n] = '\0';
++      while (n > 0 && (line[n-1] == '\r' || line[n-1] == ' ')) line[--n] = '\0';
++      if (strcmp(line, fact) == 0) {
++        r.close();
++        Serial.println("learn: already stored, skipped");
++        return;
++      }
++    }
++    r.close();
++  }
+   File f = SD.open("/learned.txt", FILE_APPEND);
+   if (!f) { Serial.println("learn: SD write failed"); return; }
+   f.println(fact); f.close();
+diff --git a/sketches/pipeline_worker/llm_core.c b/sketches/pipeline_worker/llm_core.c
+index 24c9136..0c3960b 100644
+--- a/sketches/pipeline_worker/llm_core.c
++++ b/sketches/pipeline_worker/llm_core.c
+@@ -423,6 +423,8 @@ int llm_encode(LLM* m, const char* text, int bos, int eos, int* tokens, int max)
+ 
+ const char* llm_decode(LLM* m, int prev_token, int token) {
+   (void)m;
++  /* D-1: a corrupt token id must not read arbitrary memory */
++  if (!g_pieces || token < 0 || token >= g_vocab) return "";
+   const char* piece = g_pieces[token];
+   if (prev_token == 1 && piece[0] == ' ') piece++; /* strip space after BOS */
+   unsigned char byte;
+diff --git a/train/model.py b/train/model.py
+index 3438f5b..9d8ba9c 100644
+--- a/train/model.py
++++ b/train/model.py
+@@ -328,8 +328,14 @@ class Transformer(nn.Module):
+ 
+         return optimizer
+ 
+-    def estimate_mfu(self, fwdbwd_per_iter, dt):
+-        """ estimate model flops utilization (MFU) in units of A100 bfloat16 peak FLOPS """
++    def estimate_mfu(self, fwdbwd_per_iter, dt, flops_promised=312e12):
++        """ estimate model flops utilization (MFU) as a ratio of peak FLOPS.
++
++        D-3 honesty note: the default denominator is A100 bf16 peak
++        (312 TFLOPS), kept for llama2.c comparability. R-457 trains on
++        Apple-Silicon MPS, so treat the logged value as a *relative
++        throughput index*, or pass your chip's measured peak for a true
++        MFU. """
+         # first estimate the number of flops we do per iteration.
+         # see PaLM paper Appendix B as ref: https://arxiv.org/abs/2204.02311
+         N = sum(p.numel() for p in self.parameters())
+@@ -340,7 +346,6 @@ class Transformer(nn.Module):
+         flops_per_iter = flops_per_fwdbwd * fwdbwd_per_iter
+         # express our flops throughput as ratio of A100 bfloat16 peak flops
+         flops_achieved = flops_per_iter * (1.0/dt) # per second
+-        flops_promised = 312e12 # A100 GPU bfloat16 peak flops is 312 TFLOPS
+         mfu = flops_achieved / flops_promised
+         return mfu
+ 
+diff --git a/train/tinystories.py b/train/tinystories.py
+index eb3c670..90f51d6 100644
+--- a/train/tinystories.py
++++ b/train/tinystories.py
+@@ -182,7 +182,8 @@ def pretokenize(vocab_size):
+     # process all the shards in a process pool
+     fun = partial(process_shard, vocab_size=vocab_size)
+     with ProcessPoolExecutor() as executor:
+-        executor.map(fun, enumerate(shard_filenames))
++        # D-2: consume the iterator so worker exceptions surface
++        list(executor.map(fun, enumerate(shard_filenames)))
+     print("Done.")
+ 
+ 
+-- 
+2.43.0
+

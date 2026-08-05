@@ -29,7 +29,9 @@ FILES = [find(f) for f in
          ("data00.bin", "data01.bin", "wiki00.bin", "shard00.bin")]
 FILES = [f for f in FILES if f]
 
-DEVICE = "mps"
+# D-4: auto-detect; was hardcoded "mps" (crashed on non-Mac hosts)
+DEVICE = ("mps" if torch.backends.mps.is_available()
+          else ("cuda" if torch.cuda.is_available() else "cpu"))
 WINDOWS = 20          # fixed windows per file
 SEQ = 512             # window length
 

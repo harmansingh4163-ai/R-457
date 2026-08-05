@@ -328,8 +328,14 @@ class Transformer(nn.Module):
 
         return optimizer
 
-    def estimate_mfu(self, fwdbwd_per_iter, dt):
-        """ estimate model flops utilization (MFU) in units of A100 bfloat16 peak FLOPS """
+    def estimate_mfu(self, fwdbwd_per_iter, dt, flops_promised=312e12):
+        """ estimate model flops utilization (MFU) as a ratio of peak FLOPS.
+
+        D-3 honesty note: the default denominator is A100 bf16 peak
+        (312 TFLOPS), kept for llama2.c comparability. R-457 trains on
+        Apple-Silicon MPS, so treat the logged value as a *relative
+        throughput index*, or pass your chip's measured peak for a true
+        MFU. """
         # first estimate the number of flops we do per iteration.
         # see PaLM paper Appendix B as ref: https://arxiv.org/abs/2204.02311
         N = sum(p.numel() for p in self.parameters())
@@ -340,7 +346,6 @@ class Transformer(nn.Module):
         flops_per_iter = flops_per_fwdbwd * fwdbwd_per_iter
         # express our flops throughput as ratio of A100 bfloat16 peak flops
         flops_achieved = flops_per_iter * (1.0/dt) # per second
-        flops_promised = 312e12 # A100 GPU bfloat16 peak flops is 312 TFLOPS
         mfu = flops_achieved / flops_promised
         return mfu
 

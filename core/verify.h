@@ -27,10 +27,23 @@
  *
  * KNOWN LIMITS (honest):
  *   - Number match is exact-string after trimming a trailing '.', so
- *     "660" does not match "660.0". The bank stores one canonical form,
- *     so this is fine for /ask; it is NOT a general-text checker.
- *   - Refusal detection is phrase-based ("cannot be determined",
- *     "but not the"). New refusal templates must be added here.
+ *     "660" does not match "660.0", and formatting variants ("2,700",
+ *     ".5" vs "0.5") fail closed as UNGROUNDED. The bank stores one
+ *     canonical form, so this is fine for /ask; it is NOT a
+ *     general-text checker.
+ *   - Refusal detection is phrase-based on the single canonical marker
+ *     "cannot be determined" (B-2: broader phrases like "but not the"
+ *     false-positived on correct answers). New refusal templates must
+ *     end with the marker or be added here.
+ *   - A refusal may legitimately assert grounded numbers ("melting is
+ *     660; boiling cannot be determined"); the report says so, but the
+ *     return code is still VERIFY_REFUSAL.
+ *   - Grounding scans the WHOLE prompt, question text included: a
+ *     number that appears only in the question ("Is the answer 42?")
+ *     counts as grounded and is cited with a fact index (B-3).
+ *   - A number appearing twice cites twice ("660 <- fact 1, 660 <- ...").
+ *   - Unterminated <calc>/<count>/<quote> tags fail closed as
+ *     VERIFY_TOOL_FAIL (B-1); they used to ground everything after them.
  *   - It verifies GROUNDING, not truth. A grounded wrong pick (right
  *     number attached to wrong property) still passes. That is what
  *     the model is for.

@@ -310,6 +310,22 @@ static void run_selftest() {
 }
 
 static void learn_fact(const char* fact) {
+  /* D-5: dedup — a doubled /learn command must not store the fact twice */
+  File r = SD.open("/learned.txt");
+  if (r) {
+    static char line[160];
+    int n;
+    while ((n = r.readBytesUntil('\n', line, sizeof line - 1)) > 0) {
+      line[n] = '\0';
+      while (n > 0 && (line[n-1] == '\r' || line[n-1] == ' ')) line[--n] = '\0';
+      if (strcmp(line, fact) == 0) {
+        r.close();
+        Serial.println("learn: already stored, skipped");
+        return;
+      }
+    }
+    r.close();
+  }
   File f = SD.open("/learned.txt", FILE_APPEND);
   if (!f) { Serial.println("learn: SD write failed"); return; }
   f.println(fact); f.close();
