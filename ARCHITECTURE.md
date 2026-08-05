@@ -81,8 +81,14 @@ real (EE.VMULAS.S8: 16 int8 MACs/cycle; ~7 cycles per 32 int4 MACs
 incl. nibble unpack). (2) On the in-order LX7, cache stalls and
 compute SERIALIZE, so compute savings pay off proportional to compute
 share of token time (unmeasured; ~10-min cache-resident matmul
-benchmark decides). Endgame: GDMA double-buffered tiling + PIE kernel
-restores overlap and approaches the streaming floor. Scope
+benchmark decides). Overlap path, in effort order: (a) Cache_Start_DCache_Preload()
+(rom/cache.h) — fire-and-forget prefetch of the next weight block
+while computing the current one; ~10 lines, no matmul restructuring,
+no SRAM staging. Caveats: hint semantics (droppable under pressure),
+one preload engine (pace with Preload_Done), tune block size vs 64KB
+dcache. (b) PIE int4 kernel for the compute share. (c) GDMA
+double-buffered tiling only if preload proves too weak. Ceiling for
+all three: the ~170ms streaming floor. Scope
 note: true PIE assembly was never benchmarked on-silicon; reopen only
 with an on-chip PIE benchmark, and only after the memory work lands.
 Clock ceilings (measured from the shipped core, qio_opi variant):
