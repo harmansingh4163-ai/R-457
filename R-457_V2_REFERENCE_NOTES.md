@@ -53,3 +53,56 @@
 - [ ] Read `llm.h` + `model.py` before starting v2 PLE implementation
 - [ ] Benchmark ESP-NOW round-trip latency on Guition + Waveshare
 - [ ] Work v2 partition math using Split-PLE pattern (two-board variant)
+
+---
+
+# Addendum — imFARSI/NanoMind-S3 (reviewed 2026-08-08)
+
+**Repo:** https://github.com/imFARSI/NanoMind-S3
+**What it is:** Karpathy stories15M (15.2M dense LLaMA-2), INT4-packed, running
+**~2.96 tok/s on a SINGLE ESP32-S3** (N16R8, ESP-IDF, ~1000 lines of C).
+Most directly applicable repo reviewed so far — it implements our "speed is an
+access-pattern problem" thesis and hits the numbers.
+
+## The three mechanisms (all portable to Arduino/R-457)
+
+### 1. Flash MMU weight mapping — `main.c:127-129`
+`esp_partition_mmap(part, 0, size, ESP_PARTITION_MMAP_DATA, &ptr, &handle)`
+maps the 7.49 MB INT4 model partition straight into CPU address space.
+Weights are read through the cache like normal memory: no SPI read calls,
+no PSRAM copy, 0 MB PSRAM used for weights. This is the access-pattern fix,
+already proven on this exact silicon. Callable from Arduino (ESP-IDF API is
+linked in). Supersedes/complements the Cache preload plan — measure both.
+
+### 2. Dual-core row-split matmul — `matmul.c` (186 lines, read whole file)
+Persistent worker task pinned to core 1 (`xTaskCreatePinnedToCore`, prio 10),
+two binary semaphores (start/done). Core 0 computes rows [0, n/2), core 1
+rows [n/2, n). Our inference is single-core today — this is a near-2x on the
+dominant op for ~100 lines of code. Works under Arduino (FreeRTOS present).
+
+### 3. KV cache in PSRAM — `model.c`
+3.54 MB for seq_len 256 at dim 288 / 6 layers. Independent confirmation of
+our #1 backlog item with concrete sizing; their layout is worth copying.
+
+## Calibration point for R-457
+15.2M @ ~2.96 tok/s single-board implies our 27M should land ~1.5 tok/s on
+ONE board with mmap + dual-core — vs ~0.3 tok/s on the current two-board
+split. If that holds, the split exists only for models >single-board flash,
+and the 27M product question reopens.
+
+## Caveats
+- ESP-IDF project; we are Arduino. APIs available, but partition table for
+  the model region must be added to our scheme (they use a custom
+  partitions.csv — read it).
+- Bare devkit: no display, PSRAM bus uncontended. Our head board drives an
+  LCD from the same PSRAM — expect some contention tax.
+- 2.96 tok/s is their claim; not independently verified. First step is
+  reproducing their benchmark on our Guition before porting anything.
+- INT4 format differs (their per-row FP32 scale, nibble-packed signed
+  [-8,+7]) — check against our export before assuming binary compat.
+
+## Proposed actions
+- [ ] Flash their firmware unmodified on a spare board; verify ~3 tok/s claim
+- [ ] Benchmark esp_partition_mmap reads vs our current weight access path
+- [ ] Prototype dual-core matmul in our runtime (self-contained change)
+- [ ] Re-run the 27M single-board feasibility math if both land
